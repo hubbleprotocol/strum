@@ -99,13 +99,18 @@ pub fn enum_iter_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
             }
 
             fn size_hint(&self) -> (usize, Option<usize>) {
-                let t = if self.idx + self.back_idx >= #variant_count { 0 } else { #variant_count - self.idx - self.back_idx };
+                let t = if self.idx.checked_add(self.back_idx).unwrap() >= #variant_count {
+                    0
+                } else {
+                    #variant_count.checked_sub(self.idx).unwrap().checked_sub(self.back_idx).unwrap()
+                };
                 (t, Some(t))
             }
 
             fn nth(&mut self, n: usize) -> Option<<Self as Iterator>::Item> {
-                let idx = self.idx + n + 1;
-                if idx + self.back_idx > #variant_count {
+                let prev_idx = self.idx.checked_add(n)?;
+                let idx = prev_idx.checked_add(1)?;
+                if idx.checked_add(self.back_idx)? > #variant_count {
                     // We went past the end of the iterator. Freeze idx at #variant_count
                     // so that it doesn't overflow if the user calls this repeatedly.
                     // See PR #76 for context.
@@ -113,7 +118,7 @@ pub fn enum_iter_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
                     ::core::option::Option::None
                 } else {
                     self.idx = idx;
-                    self.get(idx - 1)
+                    self.get(prev_idx)
                 }
             }
         }
@@ -126,9 +131,9 @@ pub fn enum_iter_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
         impl #impl_generics DoubleEndedIterator for #iter_name #ty_generics #where_clause {
             fn next_back(&mut self) -> Option<<Self as Iterator>::Item> {
-                let back_idx = self.back_idx + 1;
+                let back_idx = self.back_idx.checked_add(1)?;
 
-                if self.idx + back_idx > #variant_count {
+                if self.idx.checked_add(back_idx)? > #variant_count {
                     // We went past the end of the iterator. Freeze back_idx at #variant_count
                     // so that it doesn't overflow if the user calls this repeatedly.
                     // See PR #76 for context.
@@ -136,7 +141,7 @@ pub fn enum_iter_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
                     ::core::option::Option::None
                 } else {
                     self.back_idx = back_idx;
-                    self.get(#variant_count - self.back_idx)
+                    self.get(#variant_count.checked_sub(self.back_idx)?)
                 }
             }
         }
